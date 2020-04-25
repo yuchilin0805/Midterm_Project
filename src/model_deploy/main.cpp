@@ -12,11 +12,14 @@
 #include "tensorflow/lite/version.h"
 #include "uLCD_4DGL.h"
 
+
+//RawSerial pc(USBTX, USBRX);
 InterruptIn button(SW2);
 DigitalIn confirmbutton(SW3);
 DigitalOut redled(LED1); 
 DigitalOut greenled(LED2);
 Thread t1(osPriorityHigh);
+uLCD_4DGL uLCD(D1, D0, D2);
 Thread t2;
 Timer timers;
 
@@ -26,15 +29,34 @@ int PredictGesture(float* output);
 EventQueue queue1(32 * EVENTS_EVENT_SIZE);
 EventQueue queue2;
 int gesture_result();
+constexpr int kTensorArenaSize = 60 * 1024;
+uint8_t tensor_arena[kTensorArenaSize];
+
+
+
+// Set up logging.
+static tflite::MicroErrorReporter micro_error_reporter;
+tflite::ErrorReporter* error_reporter = &micro_error_reporter;
+
+// Map the model into a usable data structure. This doesn't involve any
+// copying or parsing, it's a very lightweight operation.
+const tflite::Model* model = tflite::GetModel(g_magic_wand_model_data);
+ TfLiteTensor* model_input;
+int input_length;
+tflite::MicroInterpreter* interpreter;
 
 void mode_selection(){
  
   greenled=0;
   redled=1;
-  printinfo();
-  interruptcall=1;
+  uLCD.cls();
+  uLCD.printf("choose mode\n");
+  uLCD.printf("0:forward :ring\n");
+  uLCD.printf("1:backward :slope\n");
+  uLCD.printf("2:song selection :one\n");
+  int a=gesture_result();
+  uLCD.cls();
   
-  wait(1);
 }
 // Return the result of the last prediction
 int PredictGesture(float* output) {
@@ -83,54 +105,9 @@ int main(int argc, char* argv[]) {
   t2.start(callback(&queue2, &EventQueue::dispatch_forever));
   button.rise(queue1.event(mode_selection));
 
-  
-  
-  
-  
-  while(1){
-    if(!interruptcall){
-      redled=1;
-      greenled=0;
-    }
-    else{
-      int a=gesture_result();
-      if(a==-1) 
-        printf("gggggggggg");
-      interruptcall=0;
-    }
-  }
 
+  // wait(1);
   
-  
-  
-  
-  
-}
-int gesture_result(){
-  // Create an area of memory to use for input, output, and intermediate arrays.
-  // The size of this will depend on the model you're using, and may need to be
-  // determined by experimentation.
-  redled=0;
-  greenled=1;
-  wait(1);
-  constexpr int kTensorArenaSize = 60 * 1024;
-  uint8_t tensor_arena[kTensorArenaSize];
-  // Whether we should clear the buffer next time we fetch data
-  bool should_clear_buffer = false;
-  bool got_data = false;
-
-  // The gesture index of the prediction
-  int gesture_index;
-
-  
-
-  // Set up logging.
-  static tflite::MicroErrorReporter micro_error_reporter;
-  tflite::ErrorReporter* error_reporter = &micro_error_reporter;
-
-  // Map the model into a usable data structure. This doesn't involve any
-  // copying or parsing, it's a very lightweight operation.
-  const tflite::Model* model = tflite::GetModel(g_magic_wand_model_data);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     error_reporter->Report(
         "Model provided is schema version %d not equal "
@@ -161,13 +138,13 @@ int gesture_result(){
   // Build an interpreter to run the model with
   static tflite::MicroInterpreter static_interpreter(
       model, micro_op_resolver, tensor_arena, kTensorArenaSize, error_reporter);
-  tflite::MicroInterpreter* interpreter = &static_interpreter;
+ interpreter = &static_interpreter;
 
   // Allocate memory from the tensor_arena for the model's tensors
   interpreter->AllocateTensors();
 
   // Obtain pointer to the model's input tensor
-  TfLiteTensor* model_input = interpreter->input(0);
+  model_input = interpreter->input(0);
   if ((model_input->dims->size != 4) || (model_input->dims->data[0] != 1) ||
       (model_input->dims->data[1] != config.seq_length) ||
       (model_input->dims->data[2] != kChannelNumber) ||
@@ -176,7 +153,7 @@ int gesture_result(){
     return -1;
   }
 
-  int input_length = model_input->bytes / sizeof(float);
+ input_length = model_input->bytes / sizeof(float);
 
   TfLiteStatus setup_status = SetupAccelerometer(error_reporter);
   if (setup_status != kTfLiteOk) {
@@ -185,12 +162,42 @@ int gesture_result(){
   }
 
   error_reporter->Report("Set up successful...\n");
+  
+  
+  
+  
+  while(1){
+    
+    redled=1;
+    greenled=0;
+  }
+
+  
+  
+  
+  
+  
+}
+int gesture_result(){
+  // Create an area of memory to use for input, output, and intermediate arrays.
+  // The size of this will depend on the model you're using, and may need to be
+  // determined by experimentation.
+  redled=0;
+  greenled=1;
+  // Whether we should clear the buffer next time we fetch data
+  bool should_clear_buffer = false;
+  bool got_data = false;
+
+  // The gesture index of the prediction
+  int gesture_index;
+
 
   int alreadyget;
-
+  int getconfirm=0;
   while(true){
     redled=0;
     alreadyget=0;
+    getconfirm=0;
     // Attempt to read new data from the accelerometer
     got_data = ReadAccelerometer(error_reporter, model_input->data.f,
                                  input_length, should_clear_buffer);
@@ -219,30 +226,16 @@ int gesture_result(){
     if (gesture_index < label_num) {
       error_reporter->Report(config.output_message[gesture_index]);
       alreadyget=1;
-    }
-    int getconfirm=0;
-    if(alreadyget=1 && should_clear_buffer){
-      print_whichone(gesture_index);  
-      timers.start();
-      while(1){
-        if(confirmbutton==0){
-          printinfo();
-          getconfirm=1;
-          break;
-        }
-        else{
-          if(timers.read()>5){
-            timers.reset();
-            print_choose_again();
-            break;
-          }
-            
-        }
-      }
+      uLCD.printf("you choose %d\n",gesture_index);
+      uLCD.printf("confirm with SW3\n"); 
     }
     
-    if(getconfirm)
-      break;
+  
+    if(confirmbutton==0){
+       uLCD.printf("got your confirm\n");
+       break;
+    }
+    
   }
- 
+  return gesture_index;
 }
