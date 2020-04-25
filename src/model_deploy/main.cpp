@@ -46,16 +46,18 @@ int input_length;
 tflite::MicroInterpreter* interpreter;
 
 void mode_selection(){
- 
-  greenled=0;
-  redled=1;
-  uLCD.cls();
-  uLCD.printf("choose mode\n");
-  uLCD.printf("0:forward :ring\n");
-  uLCD.printf("1:backward :slope\n");
-  uLCD.printf("2:song selection :one\n");
-  int a=gesture_result();
-  uLCD.cls();
+  if(timers.read_ms()>1000){
+    greenled=0;
+    redled=1;
+    uLCD.cls();
+    uLCD.printf("choose mode\n");
+    uLCD.printf("0:forward :ring\n");
+    uLCD.printf("1:backward :slope\n");
+    uLCD.printf("2:song selection :one\n");
+    int a=gesture_result();
+    uLCD.cls();
+    timers.reset();
+  }
   
 }
 // Return the result of the last prediction
@@ -102,7 +104,7 @@ int main(int argc, char* argv[]) {
 
   
   t1.start(callback(&queue1, &EventQueue::dispatch_forever));
-  t2.start(callback(&queue2, &EventQueue::dispatch_forever));
+  timers.start();
   button.rise(queue1.event(mode_selection));
 
 
