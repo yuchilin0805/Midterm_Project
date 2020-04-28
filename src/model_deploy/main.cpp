@@ -13,27 +13,38 @@
 #include "uLCD_4DGL.h"
 
 
-//RawSerial pc(USBTX, USBRX);
+Serial pc(USBTX, USBRX);
 InterruptIn button(SW2);
 DigitalIn confirmbutton(SW3);
 DigitalOut redled(LED1); 
 DigitalOut greenled(LED2);
-Thread t1(osPriorityHigh);
+Thread t1;
 uLCD_4DGL uLCD(D1, D0, D2);
 Thread t2;
+Thread t3;
+
 Timer timers;
+Timer timer2;
 
 int interruptcall=0;
 
 int PredictGesture(float* output);
 EventQueue queue1(32 * EVENTS_EVENT_SIZE);
-EventQueue queue2;
+EventQueue queue2(32 * EVENTS_EVENT_SIZE);
+EventQueue queue3(32 * EVENTS_EVENT_SIZE);
 int gesture_result();
 constexpr int kTensorArenaSize = 60 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
 
 
-
+int player;
+int endplaying=0;
+int nowplaying=0;
+int nextsong=0;
+int numberofsongs=2;
+int ready_to_load=2;
+void playmusic();
+void loadsong();
 // Set up logging.
 static tflite::MicroErrorReporter micro_error_reporter;
 tflite::ErrorReporter* error_reporter = &micro_error_reporter;
@@ -44,9 +55,106 @@ const tflite::Model* model = tflite::GetModel(g_magic_wand_model_data);
  TfLiteTensor* model_input;
 int input_length;
 tflite::MicroInterpreter* interpreter;
-
+class songs{
+  public:
+    void loadinfo(int*);
+    string name;
+    int length;
+    void printinfo();
+    void printname();
+  private:
+    int* info;
+};
+void songs::loadinfo(int* x){
+  info =new int[length];
+  for(int i=0;i<length;i++){
+    info[i]=x[i];
+  }
+}
+void songs::printinfo(){
+  for(int i=0;i<length;i++){
+    uLCD.printf("%d ",info[i]);
+  }
+}
+void songs::printname(){
+  int j=0;
+  while(name[j]!='\0'){
+    uLCD.printf("%c",name[j]);
+    j++;
+  }
+}
+songs songlist[8];
+void showlist(){
+  uLCD.cls();
+  
+  for(int i=0;i<numberofsongs;i++){
+    uLCD.printf("%d:",i);
+    songlist[i].printname();
+    uLCD.printf("\n");
+  }
+  loadsong();
+}
+void loadsong(){
+  int i=0; 
+  char a[10];
+  while(true){
+    if(pc.readable()){
+      a[i]=pc.getc();
+      if(a[i]=='\n')
+        break;
+      i++;
+    }
+  }
+  char c[i];
+  for(int j=0;j<i;j++)
+    c[j]=a[j];
+  int16_t signalLength=atoi(c);
+  songlist[ready_to_load].length=signalLength;
+  
+  i=0;
+  char read[20];
+  while(true){
+    if(pc.readable()){
+      read[i]=pc.getc();
+      if(read[i]=='$'){
+        read[i]='\0';
+        break;
+      }
+      i++;
+    }
+  }
+  songlist[ready_to_load].name=string(read);
+  int signal[signalLength];
+  int serialCount = 0;
+  char serialInBuffer[32];
+  i=0;  
+  while(i < signalLength){
+    if(pc.readable()){
+      serialInBuffer[serialCount] = pc.getc();
+      serialCount++;
+      if(serialCount == 3){
+        serialInBuffer[serialCount] = '\0';
+        signal[i] = (int) atof(serialInBuffer);
+        serialCount = 0;
+        i++;
+      }
+    }
+  }
+  uLCD.cls();
+  uLCD.printf("%d",songlist[ready_to_load].length);  
+  int k=0;
+  while(songlist[ready_to_load].name[k]!='\0'){
+    uLCD.printf("%c",songlist[ready_to_load].name[k]);
+    k++;
+  }
+  songlist[ready_to_load].loadinfo(signal);
+  songlist[ready_to_load].printinfo();
+  ready_to_load++;
+  numberofsongs++;
+}
 void mode_selection(){
   if(timers.read_ms()>1000){
+    queue2.cancel(player);
     greenled=0;
     redled=1;
     uLCD.cls();
@@ -55,10 +163,45 @@ void mode_selection(){
     uLCD.printf("1:backward :slope\n");
     uLCD.printf("2:song selection :one\n");
     int a=gesture_result();
-    uLCD.cls();
+    if(a==0){
+      nextsong=nowplaying-1;
+      wait(0.5);
+      playmusic();
+    }
+    else if(a==1){
+      nextsong=nowplaying+1;
+      playmusic();
+    }
+    else if(a==2){
+     showlist();
+    }
+    else{
+      uLCD.printf("error\n");
+    }
+    //uLCD.printf("a: %d",a);
     timers.reset();
   }
   
+}
+void playmusic(){
+  endplaying=0;
+  nowplaying=nextsong;
+  uLCD.cls();
+  uLCD.printf("now playing : %d\n",nowplaying);
+  
+  
+  songlist[nowplaying].printname();
+  uLCD.printf("\n");
+  wait(1);
+  /*timer2.start();
+  while(1){
+    if(timer2.read()>10){
+      nowplaying++;
+      timer2.reset();
+      endplaying=1;
+      break;
+    }
+  }*/
 }
 // Return the result of the last prediction
 int PredictGesture(float* output) {
@@ -104,9 +247,12 @@ int main(int argc, char* argv[]) {
 
   
   t1.start(callback(&queue1, &EventQueue::dispatch_forever));
+  t2.start(callback(&queue2, &EventQueue::dispatch_forever));
+  t3.start(callback(&queue3, &EventQueue::dispatch_forever));
   timers.start();
   button.rise(queue1.event(mode_selection));
-
+  songlist[0].name="little star";
+  songlist[1].name="little bee";
 
   // wait(1);
   
@@ -167,11 +313,13 @@ int main(int argc, char* argv[]) {
   
   
   
-  
+  playmusic();
   while(1){
     
     redled=1;
     greenled=0;
+    
+    
   }
 
   
@@ -193,13 +341,12 @@ int gesture_result(){
   // The gesture index of the prediction
   int gesture_index;
 
+  
+  int getanswer=-1;
 
-  int alreadyget;
-  int getconfirm=0;
   while(true){
     redled=0;
-    alreadyget=0;
-    getconfirm=0;
+
     // Attempt to read new data from the accelerometer
     got_data = ReadAccelerometer(error_reporter, model_input->data.f,
                                  input_length, should_clear_buffer);
@@ -227,7 +374,7 @@ int gesture_result(){
     // Produce an output
     if (gesture_index < label_num) {
       error_reporter->Report(config.output_message[gesture_index]);
-      alreadyget=1;
+      getanswer=gesture_index;
       uLCD.printf("you choose %d\n",gesture_index);
       uLCD.printf("confirm with SW3\n"); 
     }
@@ -235,9 +382,10 @@ int gesture_result(){
   
     if(confirmbutton==0){
        uLCD.printf("got your confirm\n");
+       wait(0.5);
        break;
     }
     
   }
-  return gesture_index;
+  return getanswer;
 }
