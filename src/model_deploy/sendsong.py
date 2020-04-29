@@ -11,7 +11,7 @@ song=[261, 261, 392, 392, 440, 440, 392,
   392, 392, 349, 349, 330, 330, 294,
   261, 261, 392, 392, 440, 440, 392,
   349, 349, 330, 330, 294, 294, 261]
-name="little starff"
+name="little starff3"
 formatter = lambda x: "%d" % x
 
 serdev = '/dev/ttyACM0'

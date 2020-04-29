@@ -40,11 +40,15 @@ uint8_t tensor_arena[kTensorArenaSize];
 int player;
 int endplaying=0;
 int nowplaying=0;
-int nextsong=0;
+int nextsong;
 int numberofsongs=2;
 int ready_to_load=2;
+int song_select_mode=0;
+int load_or_unload_mode=0;
+int unload_mode=0;
 void playmusic();
 void loadsong();
+void load_or_unload();
 // Set up logging.
 static tflite::MicroErrorReporter micro_error_reporter;
 tflite::ErrorReporter* error_reporter = &micro_error_reporter;
@@ -62,6 +66,7 @@ class songs{
     int length;
     void printinfo();
     void printname();
+    void unload();
   private:
     int* info;
 };
@@ -83,16 +88,83 @@ void songs::printname(){
     j++;
   }
 }
+void songs::unload(){
+  name="0";
+  length=0;
+  delete []info;
+  //info=NULL;
+}
 songs songlist[8];
 void showlist(){
   uLCD.cls();
-  
+  uLCD.textbackground_color(BLACK);
+  song_select_mode=1;
   for(int i=0;i<numberofsongs;i++){
+    if(i==nowplaying)
+      uLCD.textbackground_color(BLUE);
+    else
+      uLCD.textbackground_color(BLACK);
     uLCD.printf("%d:",i);
     songlist[i].printname();
     uLCD.printf("\n");
   }
-  loadsong();
+  uLCD.textbackground_color(BLACK);
+  uLCD.printf("\n");
+  uLCD.printf("forward :ring\n");
+  uLCD.printf("backward :slope\n");
+  uLCD.printf("load or unload:one\n");
+  int result=gesture_result();
+  if(result==-2)
+    load_or_unload();
+  else if(result>=0){
+    nextsong=result;
+    player=queue2.call_in(500,playmusic);
+  }
+  else
+    uLCD.printf("errors");
+  song_select_mode=0;
+}
+void load_or_unload(){
+  uLCD.cls();
+  load_or_unload_mode=1;
+  uLCD.printf("load: ring\n");
+  uLCD.printf("unload: slope\n");
+  int result=gesture_result();
+  load_or_unload_mode=0;
+  if(result==0)
+    loadsong();
+  else if(result==1){
+    uLCD.cls();
+    uLCD.textbackground_color(BLACK);
+    for(int i=0;i<numberofsongs;i++){
+      if(i==0)
+        uLCD.textbackground_color(BLUE);
+      else
+        uLCD.textbackground_color(BLACK);
+      uLCD.printf("%d:",i);
+      songlist[i].printname();
+      uLCD.printf("\n");
+    }
+    uLCD.printf("which song to unload\n");
+    uLCD.printf("forward :ring\n");
+    uLCD.printf("backward :slope\n");
+    unload_mode=1;
+    int unloadnumber=gesture_result();
+    unload_mode=0;
+    songlist[unloadnumber].unload();
+    int i=unloadnumber;
+    while(i<numberofsongs-1){
+      songlist[i]=songlist[i+1];
+      //songlist[i].length=songlist[i+1].length;
+      //songlist[i].name=songlist[i+1].name;
+      i++;
+    }
+    numberofsongs--;
+    ready_to_load--;
+  }
+
+  
+
 }
 void loadsong(){
   int i=0; 
@@ -155,8 +227,8 @@ void loadsong(){
 void mode_selection(){
   if(timers.read_ms()>1000){
     queue2.cancel(player);
-    greenled=0;
-    redled=1;
+    greenled=1;
+    redled=0;
     uLCD.cls();
     uLCD.printf("choose mode\n");
     uLCD.printf("0:forward :ring\n");
@@ -164,16 +236,15 @@ void mode_selection(){
     uLCD.printf("2:song selection :one\n");
     int a=gesture_result();
     if(a==0){
-      nextsong=nowplaying-1;
-      wait(0.5);
-      playmusic();
+      nextsong=nowplaying-1; 
+      player=queue2.call_in(500,playmusic);
     }
     else if(a==1){
       nextsong=nowplaying+1;
-      playmusic();
+      player=queue2.call_in(500,playmusic);
     }
     else if(a==2){
-     showlist();
+      showlist();        
     }
     else{
       uLCD.printf("error\n");
@@ -181,9 +252,11 @@ void mode_selection(){
     //uLCD.printf("a: %d",a);
     timers.reset();
   }
-  
+  uLCD.printf("ee");
 }
 void playmusic(){
+  redled=0;
+  greenled=1;
   endplaying=0;
   nowplaying=nextsong;
   uLCD.cls();
@@ -253,7 +326,7 @@ int main(int argc, char* argv[]) {
   button.rise(queue1.event(mode_selection));
   songlist[0].name="little star";
   songlist[1].name="little bee";
-
+  nextsong=0;
   // wait(1);
   
   if (model->version() != TFLITE_SCHEMA_VERSION) {
@@ -313,9 +386,10 @@ int main(int argc, char* argv[]) {
   
   
   
-  playmusic();
+  player=queue2.call(playmusic);
   while(1){
-    
+    /*if(endplaying)
+      player=queue2.call(playmusic);*/
     redled=1;
     greenled=0;
     
@@ -332,8 +406,8 @@ int gesture_result(){
   // Create an area of memory to use for input, output, and intermediate arrays.
   // The size of this will depend on the model you're using, and may need to be
   // determined by experimentation.
-  redled=0;
-  greenled=1;
+  redled=1;
+  greenled=0;
   // Whether we should clear the buffer next time we fetch data
   bool should_clear_buffer = false;
   bool got_data = false;
@@ -343,7 +417,8 @@ int gesture_result(){
 
   
   int getanswer=-1;
-
+  int nowselect=nowplaying;
+  int nowunload=0;
   while(true){
     redled=0;
 
@@ -375,17 +450,118 @@ int gesture_result(){
     if (gesture_index < label_num) {
       error_reporter->Report(config.output_message[gesture_index]);
       getanswer=gesture_index;
-      uLCD.printf("you choose %d\n",gesture_index);
-      uLCD.printf("confirm with SW3\n"); 
+      /////////////////////////unload
+      if(unload_mode){
+        if(getanswer==0){
+          if(nowunload!=0)
+            nowunload--;
+          else{
+            nowunload=numberofsongs-1;
+          }
+        }
+        else if(getanswer==1){
+          if(nowunload==numberofsongs-1)
+            nowunload=0;
+          else
+            nowunload++;
+        }        
+        else
+          uLCD.printf("choose again\n");
+       
+        uLCD.cls();
+        uLCD.locate(0,0);
+        for(int i=0;i<numberofsongs;i++){
+          if(i==nowunload)
+             uLCD.textbackground_color(BLUE);
+          else{
+            uLCD.textbackground_color(BLACK);
+          }
+          uLCD.printf("%d:",i);
+          songlist[i].printname();
+          uLCD.printf("\n");
+        }
+        uLCD.textbackground_color(BLACK);
+        uLCD.printf("\n");
+        uLCD.printf("forward :ring\n");
+        uLCD.printf("backward :slope\n");
+        uLCD.printf("confirm with SW3\n"); 
+      }
+  ///////////////////songselect
+      else if(song_select_mode && !load_or_unload_mode&& !unload_mode){
+        if(getanswer==0){
+          if(nowselect!=0)
+            nowselect--;
+          else{
+            nowselect=numberofsongs-1;
+          }
+        }
+        else if(getanswer==1){
+          if(nowselect==numberofsongs-1)
+            nowselect=0;
+          else
+            nowselect++;
+        }
+        uLCD.cls();
+        uLCD.locate(0,0);
+        for(int i=0;i<numberofsongs;i++){
+          
+          if(i==nowselect)
+             uLCD.textbackground_color(BLUE);
+          else{
+            uLCD.textbackground_color(BLACK);
+          }
+          
+          uLCD.printf("%d:",i);
+          songlist[i].printname();
+          uLCD.printf("\n");
+        }
+        uLCD.textbackground_color(BLACK);
+        uLCD.printf("\n");
+        uLCD.printf("forward :ring\n");
+        uLCD.printf("backward :slope\n");
+        uLCD.printf("song selection :one\n");
+        if(getanswer==2)
+          uLCD.printf("load or unload?\n");
+        uLCD.printf("confirm with SW3\n"); 
+      }
+      else if(song_select_mode && load_or_unload_mode){
+        uLCD.textbackground_color(BLACK);
+        uLCD.cls();
+        uLCD.printf("load: ring\n");
+        uLCD.printf("unload: slope\n");
+        if(getanswer==2)
+          uLCD.printf("choose again\n");
+        else if(getanswer==0)
+          uLCD.printf("load?\nconfirm with SW3\n");
+        else if(getanswer==1)
+          uLCD.printf("unload?\nconfirm with SW3\n"); 
+      }
+      else{
+        uLCD.textbackground_color(BLACK);
+        uLCD.printf("you choose %d\n",getanswer);
+        uLCD.printf("confirm with SW3\n"); 
+        
+      }
+      
     }
-    
-  
     if(confirmbutton==0){
        uLCD.printf("got your confirm\n");
-       wait(0.5);
+       wait(0.3);
        break;
     }
     
   }
-  return getanswer;
+  if(unload_mode){
+    return nowunload;
+  }
+  if(song_select_mode&&!load_or_unload_mode){
+    if(getanswer==2)
+      return -2;
+    else
+      return nowselect;
+  }
+  else if(song_select_mode&&load_or_unload_mode)
+    return getanswer;    
+  else
+    return getanswer;
 }
