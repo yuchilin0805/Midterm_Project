@@ -24,17 +24,18 @@ Thread t1(osPriorityHigh);
 uLCD_4DGL uLCD(D1, D0, D2);
 Thread t2;
 Thread t3;
-
+Thread t4;
 
 Timer timers;
 Timer timer2;
-
+Timer timer3;
 int interruptcall=0;
 
 int PredictGesture(float* output);
 EventQueue queue1(32 * EVENTS_EVENT_SIZE);
 EventQueue queue2(32 * EVENTS_EVENT_SIZE);
 EventQueue queue3(32 * EVENTS_EVENT_SIZE);
+EventQueue queue4(32 * EVENTS_EVENT_SIZE);
 int gesture_result();
 constexpr int kTensorArenaSize = 60 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
@@ -53,10 +54,13 @@ int idC;
 int irq=0;
 int resetmusicplay=0;
 int f=1;
+int taikochoose=0;
+
 int16_t waveform[kAudioTxBufferSize];
 void playmusic(int);
 void loadsong();
 void load_or_unload();
+void taikodisplay(int);
 int gettaikolength(int );
 // Set up logging.
 static tflite::MicroErrorReporter micro_error_reporter;
@@ -287,15 +291,14 @@ void loadsong(){
   }
   
   uLCD.cls();
-  uLCD.printf("f %d f",pc.readable());
-  uLCD.printf("%d",songlist[ready_to_load].length);  
+  uLCD.printf("load done\n");
   int k=0;
   while(songlist[ready_to_load].name[k]!='\0'){
     uLCD.printf("%c",songlist[ready_to_load].name[k]);
     k++;
   }
   songlist[ready_to_load].loadinfo(signal);
-  songlist[ready_to_load].printinfo();
+ 
   ready_to_load++;
   numberofsongs++;
 }
@@ -336,23 +339,71 @@ void mode_selection(){
   uLCD.printf("ee");
   f=1;
 }
+void showprogress(int l){
+  uLCD.line(0,81,127,81,WHITE);
+  uLCD.line(0,85,127,85,WHITE);
+  timer2.reset();
+  timer2.start();
+  timer3.reset();
+  int x=0;
+  while(timer2.read_ms()<l*100){
+    uLCD.filled_rectangle(x,82,x+1,84,GREEN);
+    timer3.start();
+    if(timer3.read_ms()>100*l/128){
+      x++;
+      timer3.reset();
+    }
+
+  }
+
+}
 void playmusic(int reset){
   f=1;
   redled=0;
   greenled=1;
   endplaying=0;
   nowplaying=nextsong;
+  taikochoose=1;
   uLCD.cls();
-  uLCD.printf("now playing : %d\n",nowplaying);
+  uLCD.color(GREEN);
+  uLCD.printf("taiko mode?\n");
+  uLCD.printf("yes :ring\n");
+  uLCD.printf("no :slope\n");
+  int rs=gesture_result();
+  if(rs==0){
+    starttaiko=1;
+  }
+  else{
+    starttaiko=0;
+  }
+  uLCD.cls();
+  uLCD.printf("now playing:%d\n",nowplaying);
   songlist[nowplaying].printname();
   uLCD.printf("\n");
-  songlist[nowplaying].printinfo();
   
-  int getl=gettaikolength(nowplaying);
-  init_record(getl);  
-  queue3.call(ReadAcc_taiko,getl);
-  
-  starttaiko=1;
+  if(starttaiko){
+    songlist[nowplaying].printinfo();
+    int getl=gettaikolength(nowplaying);
+    init_record(getl);  
+    uLCD.text_width(4); //4X size text
+    uLCD.text_height(4);
+    uLCD.color(RED);
+    for(int i=5;i>=0;i--){
+      uLCD.locate(1,2);
+      uLCD.printf("%d",i);
+      wait(1);
+    }
+    uLCD.locate(1,2);
+    uLCD.color(BLACK);
+    uLCD.printf("f");
+
+    queue3.call(ReadAcc_taiko,getl);
+    queue4.call(taikodisplay,getl);
+  }
+  else{
+    int getl=gettaikolength(nowplaying);
+    queue4.call(showprogress,getl);
+  }
   for(int i = 0; i < songlist[nowplaying].length; i++){
     int lengths = songlist[nowplaying].getnotelength(i);
     while(lengths--)
@@ -370,6 +421,7 @@ void playmusic(int reset){
 
       if(lengths ==0) {        
           wait(0.4);
+          
           playNote(0);
           wait(0.1);
       }
@@ -379,89 +431,128 @@ void playmusic(int reset){
         
 
     }
-  }
-  int checkpt[songlist[nowplaying].length];
-  int count=0;
-  for(int i=0;i<songlist[nowplaying].length;i++){
-    if(i==0)
-      count=0;
-    else 
-      count+=songlist[nowplaying].getnotelength(i)*5;
-    checkpt[i]=count;
-  }
-  int score=0;
-  int j=0;
-  for(int i=0;i<getl;i++){
-    if(i==checkpt[j]){
-      j++;
-      if(songlist[nowplaying].getnotelength(j)==1){
-        if(record[i]==1){
-          score+=10;
-          continue;
+
+  }if(starttaiko){
+    int getl=gettaikolength(nowplaying);
+    int checkpt[songlist[nowplaying].length];
+    int count=0;
+    for(int i=0;i<songlist[nowplaying].length;i++){
+      if(i==0)
+        count=0;
+      else 
+        count+=songlist[nowplaying].getnotelength(i)*5;
+      checkpt[i]=count;
+    }
+    int score=0;
+    int excellent=0;
+    int good=0;
+    int ok=0;
+    int bad=0;
+    int miss=0;
+    int j=0;
+    for(int i=0;i<getl;i++){
+      if(i==checkpt[j]){
+        j++;
+        if(songlist[nowplaying].getnotelength(j)==1){
+          if(record[i]==1){
+            score+=10;
+            excellent++;
+          }
+          else if(i>0&&record[i-1]==1){
+            score+=8;
+            good++;
+          }
+          else if(i<getl-1&&record[i+1]==1){
+            score+=8;
+            good++;
+          }
+          else if(i>1&&record[i-2]==1){
+            score+=4;
+            ok++;
+          }
+          else if(i<getl-2&&record[i+2]==1){
+            score+=4;
+            ok++;
+          }
+          else if(i>2&&record[i-3]==1){
+            score+=1;
+            bad++;
+          }
+          else if(i<getl-3&&record[i+3]==1){
+            score+=1;
+            bad++;
+          }
+          else{
+            score=score-5;
+            miss++;
+          }
         }
-        else if(i>0&&record[i-1]==1){
-          score+=8;
-        }
-        else if(i<getl-1&&record[i+1]==1){
-          score+=8;
-        }
-        else if(i>1&&record[i-2]==1){
-          score+=4;
-        }
-        else if(i<getl-2&&record[i+2]==1){
-          score+=4;
-        }
-        else if(i>2&&record[i-3]==1){
-          score+=1;
-        }
-        else if(i<getl-3&&record[i+3]==1){
-          score+=1;
-        }
-        else{
-          score=score-0;
-        }
-      }
-      else if(songlist[nowplaying].getnotelength(j)>=2){
-        if(record[i]==2){
-          score+=10;
-        }
-        else if(i>0&&record[i-1]==2){
-          score+=8;
-        }
-        else if(i<getl-1&&record[i+1]==2){
-          score+=8;
-        }
-        else if(i>1&&record[i-2]==2){
-          score+=4;
-        }
-        else if(i<getl-2&&record[i+2]==2){
-          score+=4;
-        }
-        else if(i>2&&record[i-3]==2){
-          score+=1;
-        }
-        else if(i<getl-3&&record[i+3]==2){
-          score+=1;
-        }
-        else{
-          score=score-0;
+        else if(songlist[nowplaying].getnotelength(j)>=2){
+          if(record[i]==2){
+            score+=10;
+            excellent++;
+          }
+          else if(i>0&&record[i-1]==2){
+            score+=8;
+            good++;
+          }
+          else if(i<getl-1&&record[i+1]==2){
+            score+=8;
+            good++;
+          }
+          else if(i>1&&record[i-2]==2){
+            score+=4;
+            ok++;
+          }
+          else if(i<getl-2&&record[i+2]==2){
+            score+=4;
+            ok++;
+          }
+          else if(i>2&&record[i-3]==2){
+            score+=1;
+            bad++;
+          }
+          else if(i<getl-3&&record[i+3]==2){
+            score+=1;
+            bad++;
+          }
+          else{
+            score=score-5;
+            miss++;
+          }
         }
       }
     }
-     // uLCD.printf("%d",record[i]);
-  }
-  uLCD.cls();
+    uLCD.cls();
+    uLCD.color(GREEN);
+    uLCD.printf("execellent:%d\n",excellent);
+    uLCD.printf("good:%d\n",good);
+    uLCD.printf("ok:%d\n",ok);
+    uLCD.printf("bad:%d\n",bad);
+    uLCD.printf("missed:%d\n",miss);
+    uLCD.printf("score:%d",score);
+    starttaiko=0;
+    del_record();
 
-  for(int i=0;i<getl;i++){
-    if(i%5==0)
-      uLCD.color(RED);
-    else
-      uLCD.color(GREEN);
-    uLCD.printf("%d",record[i]);
   }
-  uLCD.printf("%d",score);
-  starttaiko=0;
-  del_record();
+  taikochoose=0;
+}
+void taikodisplay(int l){
+
+  timer2.reset();
+  timer2.start();
+  while(timer2.read_ms()<l*100){
+    uLCD.circle( 64, 82 , 16, GREEN);  
+    if(hit==2){
+      uLCD.filled_circle(64,82,16,BLUE);
+      uLCD.filled_circle(64,82,16,BLACK);
+    }
+    else if(hit==1){
+      uLCD.filled_circle(64,82,16,RED);
+      uLCD.filled_circle(64,82,16,BLACK);
+    }
+  }
+  timer2.reset();
 }
 int gettaikolength(int k){
   int sum=0;
@@ -516,6 +607,7 @@ int main(int argc, char* argv[]) {
   t1.start(callback(&queue1, &EventQueue::dispatch_forever));
   t2.start(callback(&queue2, &EventQueue::dispatch_forever));
   t3.start(callback(&queue3, &EventQueue::dispatch_forever));
+  t4.start(callback(&queue4, &EventQueue::dispatch_forever));
   timers.start();
   button.rise(queue1.event(mode_selection));
   songlist[0].name="little star";
@@ -535,7 +627,18 @@ int main(int argc, char* argv[]) {
   songlist[0].length=42;
   songlist[0].loadinfo(song);
  
-  
+  int song2[98]={
+    392,330,330,349
+    ,294,294,261,294,330,349,392,392,392,392,330,330,349
+    ,294,294,261,330,392,392,330,294,294,294,294,294,330,349,330,
+    330,330,330,330,349,392,392,330,330,349,294,294,261,330,392,392,261,
+    1,1,2,1,1,2,1,1,1,1,1,1,2,
+    1,1,2,1,1,2,1,1,1,1,4,
+    1,1,1,1,1,1,2,1,1,1,1,1,1,2,
+    1,1,2,1,1,2,1,1,1,1,4
+  };
+  songlist[1].length=49;
+  songlist[1].loadinfo(song2);
   nextsong=0;
   // wait(1);
   
@@ -598,7 +701,7 @@ int main(int argc, char* argv[]) {
   
  // player=queue2.call(playmusic);
   //  idC=queue3.call_every(1000,playNote,261);
-
+  taikochoose=1;
   playmusic(0);
   
   while(1){
@@ -664,7 +767,17 @@ int gesture_result(){
       error_reporter->Report(config.output_message[gesture_index]);
       getanswer=gesture_index;
       /////////////////////////unload
-      if(unload_mode){
+      if(taikochoose){
+        if(getanswer==0)
+          uLCD.printf("yes?\n");
+        else if(getanswer==1)
+          uLCD.printf("no?\n");
+        else{
+          uLCD.printf("choose again\n");
+        }
+        uLCD.printf("confirm with SW3\n");
+      }
+      else if(unload_mode){
         if(getanswer==0){
           if(nowunload!=0)
             nowunload--;
