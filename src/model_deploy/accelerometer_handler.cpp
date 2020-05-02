@@ -2,7 +2,7 @@
 #include "mbed.h"
 #include "fsl_port.h"
 #include "fsl_gpio.h"
-#include "uLCD_4DGL.h"
+//#include "uLCD_4DGL.h"
 #define UINT14_MAX        16383
 // FXOS8700CQ I2C address
 #define FXOS8700CQ_SLAVE_ADDR0 (0x1E<<1) // with pins SA0=0, SA1=0
@@ -29,7 +29,8 @@ I2C i2c(PTD9,PTD8);
 static int m_addr = FXOS8700CQ_SLAVE_ADDR1;
 static uint8_t data[2], res[6];
 static int16_t acc16;
-int* record;
+int *record;
+int starttaiko=0;
 // A buffer holding the last 200 sets of 3-channel values
 static float save_data[600] = {0.0};
 // Most recent position in the save_data buffer
@@ -136,68 +137,58 @@ void init_record(int a){
     record[i]=0;
   }
 }
+
 void ReadAcc_taiko(int l){
   
-printf("awefwaef");
-wait(5);
-    float t[3];
-    float xs[l];
-    float ys[l];
-    float zs[l];
-    // Enable the FXOS8700Q
-    /*FXOS8700CQ_readRegs( FXOS8700Q_CTRL_REG1, &data[1], 1);
-    data[1] |= 0x01;
-    data[0] = FXOS8700Q_CTRL_REG1;
-    FXOS8700CQ_writeRegs(data, 2);*/
-
-    // Get the slave address
-    
-    
-    for(int i=0;i<l;i++) {
+        float t[3];
+        float zs[l];
         
-        FXOS8700CQ_readRegs(FXOS8700Q_OUT_X_MSB, res, 6);
+        for(int i=0;i<l;i++) {
+            
+            FXOS8700CQ_readRegs(FXOS8700Q_OUT_X_MSB, res, 6);
 
-        acc16 = (res[0] << 6) | (res[1] >> 2);
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[0] = ((float)acc16) / 4096.0f;
+            acc16 = (res[0] << 6) | (res[1] >> 2);
+            if (acc16 > UINT14_MAX/2)
+                acc16 -= UINT14_MAX;
+            t[0] = ((float)acc16) / 4096.0f;
 
-        acc16 = (res[2] << 6) | (res[3] >> 2);
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[1] = ((float)acc16) / 4096.0f;
+            acc16 = (res[2] << 6) | (res[3] >> 2);
+            if (acc16 > UINT14_MAX/2)
+                acc16 -= UINT14_MAX;
+            t[1] = ((float)acc16) / 4096.0f;
 
-        acc16 = (res[4] << 6) | (res[5] >> 2);
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[2] = ((float)acc16) / 4096.0f;
+            acc16 = (res[4] << 6) | (res[5] >> 2);
+            if (acc16 > UINT14_MAX/2)
+                acc16 -= UINT14_MAX;
+            t[2] = ((float)acc16) / 4096.0f;
 
-        xs[i]=t[0];
-        ys[i]=t[1];
-        zs[i]=t[2];
-        
-      //printf("%1.4f\r\n",z[i]);
-        //printf("%1.3f\r\n",(init_angle-angle)*180/3.14159265358);
-        if(i>0){
-          if(zs[i]-zs[i-1]>0.5 && zs[i]-zs[i-1]<1.5){
-            record[i]=1;
-            //printf("small\r\n");
-          }
-          else if(zs[i]-zs[i-1]>1.5){
-            record[i]=2;
-            //printf("big\r\n");
-          }
-          else{
-            record[i]=0;
-          }
+            zs[i]=t[2];
+            
+          //printf("%1.4f\r\n",z[i]);
+            //printf("%1.3f\r\n",(init_angle-angle)*180/3.14159265358);
+            if(i>0){
+              if(zs[i]-zs[i-1]>0.4 && zs[i]-zs[i-1]<1.5){
+                record[i]=1;
+                printf("small\r\n");
+              }
+              else if(zs[i]-zs[i-1]>1.5){
+                record[i]=2;
+                printf("big\r\n");
+              }
+              else{
+                record[i]=0;
+              }
+            }
+            
+            /*pc.printf("x%1.4f\n",t[0]);
+            pc.printf("y%1.4f\n",t[1]);
+            pc.printf("z%1.4f\n",t[2]);
+            pc.printf("t%1.4f\n",tilt[i]);*/
+            printf("dd");
+            wait(0.1);
         }
-        
-        /*pc.printf("x%1.4f\n",t[0]);
-        pc.printf("y%1.4f\n",t[1]);
-        pc.printf("z%1.4f\n",t[2]);
-        pc.printf("t%1.4f\n",tilt[i]);*/
-        printf("dd");
-        wait(0.1);
-    }
-    //printf("end");
+        //printf("end");
+
+  
+
 }
