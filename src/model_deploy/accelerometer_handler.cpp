@@ -41,7 +41,7 @@ bool pending_initial_data = true;
 int sample_every_n = 1;
 // The number of measurements since we last saved one
 int sample_skip_counter = 1;
-
+int hit=0;
 
 void FXOS8700CQ_readRegs(int addr, uint8_t * data, int len) {
    char t = addr;
@@ -167,15 +167,18 @@ void ReadAcc_taiko(int l){
           //printf("%1.4f\r\n",z[i]);
             //printf("%1.3f\r\n",(init_angle-angle)*180/3.14159265358);
             if(i>0){
-              if(zs[i]-zs[i-1]>0.4 && zs[i]-zs[i-1]<1.5){
+              if(zs[i]-zs[i-1]>0.3 && zs[i]-zs[i-1]<1.5){
                 record[i]=1;
-                printf("small\r\n");
+                //printf("small\r\n");
+                hit=1;
               }
               else if(zs[i]-zs[i-1]>1.5){
                 record[i]=2;
-                printf("big\r\n");
+                hit=2;
+                //printf("big\r\n");
               }
               else{
+                hit=0;
                 record[i]=0;
               }
             }

@@ -15,5 +15,7 @@ extern int* record;
 extern void del_record();
 extern void init_record(int);
 extern int starttaiko;
+extern int hit;
+
  //uLCD_4DGL uLCD(D1, D0, D2);
 #endif  // ACCELEROMETER_HANDLER_H_
