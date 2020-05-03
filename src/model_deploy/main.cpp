@@ -20,7 +20,7 @@ InterruptIn button(SW2);
 DigitalIn confirmbutton(SW3);
 DigitalOut redled(LED1); 
 DigitalOut greenled(LED2);
-Thread t1(osPriorityHigh);
+Thread t1;
 uLCD_4DGL uLCD(D1, D0, D2);
 Thread t2;
 Thread t3;
@@ -106,6 +106,7 @@ class songs{
     int getinfo(int i){return info[i];}
     int getnotelength(int i){return notelength[i];}
     void unload();
+    int speed;
   private:
     int* info;
     int* notelength;
@@ -222,6 +223,7 @@ void loadsong(){
   
   int i=0; 
   char a[2];
+  char sp;
   int count=0;
   i=0;
   while(1){
@@ -235,11 +237,14 @@ void loadsong(){
       count++;
       if(count==2){
         //a[count]='\0';
+        sp=pc.getc();
         break;
       }
       i++;
     }
   }
+  
+  songlist[ready_to_load].speed=(int)sp -48;
   /*for(int j=0;j<2;j++){
     uLCD.printf("%c",a[j]);
   }*/
@@ -298,7 +303,7 @@ void loadsong(){
     k++;
   }
   songlist[ready_to_load].loadinfo(signal);
- 
+  uLCD.printf("%d",songlist[ready_to_load].speed);
   ready_to_load++;
   numberofsongs++;
 }
@@ -306,11 +311,13 @@ void mode_selection(){
   if(timers.read_ms()>1000){
     //queue3.cancel(idC);
     queue2.cancel(player);
+    taikochoose=0;
     f=0;
     resetmusicplay=1;
     playNote(0);
     greenled=1;
     redled=0;
+    wait_us(500);
     uLCD.cls();
     uLCD.printf("choose mode\n");
     uLCD.printf("0:forward :ring\n");
@@ -318,12 +325,18 @@ void mode_selection(){
     uLCD.printf("2:song selection :one\n");
     int a=gesture_result();
     if(a==0){
-      nextsong=nowplaying-1; 
+      if(nowplaying!=0)
+        nextsong=nowplaying-1;
+      else
+        nextsong=nowplaying; 
       player=queue2.call_in(500,playmusic,1);
       //playmusic();
     }
     else if(a==1){
-      nextsong=nowplaying+1;
+      if(nowplaying!=numberofsongs-1)
+        nextsong=nowplaying+1;
+      else
+        nextsong=nowplaying;
       player=queue2.call_in(500,playmusic,1);
     }
     else if(a==2){
@@ -336,7 +349,7 @@ void mode_selection(){
     //uLCD.printf("a: %d",a);
     timers.reset();
   }
-  uLCD.printf("ee");
+
   f=1;
 }
 void showprogress(int l){
@@ -352,6 +365,10 @@ void showprogress(int l){
     if(timer3.read_ms()>100*l/128){
       x++;
       timer3.reset();
+    }
+    if(taikochoose==0){
+      timer3.reset();
+      break;
     }
 
   }
@@ -420,13 +437,13 @@ void playmusic(int reset){
       playNote(songlist[nowplaying].getinfo(i));
 
       if(lengths ==0) {        
-          wait(0.4);
+          wait(0.4/songlist[nowplaying].speed);
           
           playNote(0);
-          wait(0.1);
+          wait(0.1/songlist[nowplaying].speed);
       }
       else{
-        wait(0.5);
+        wait(0.5/songlist[nowplaying].speed);
       }
         
 
@@ -559,7 +576,7 @@ int gettaikolength(int k){
   for(int i=0;i<songlist[k].length;i++){
     sum+=songlist[k].getnotelength(i)*5;
   }
-  return sum;
+  return sum/songlist[k].speed;
 }
 // Return the result of the last prediction
 int PredictGesture(float* output) {
@@ -626,7 +643,8 @@ int main(int argc, char* argv[]) {
                 1, 1, 1, 1, 1, 1, 2};
   songlist[0].length=42;
   songlist[0].loadinfo(song);
- 
+  songlist[0].speed=1;
+  songlist[1].speed=1;
   int song2[98]={
     392,330,330,349
     ,294,294,261,294,330,349,392,392,392,392,330,330,349
